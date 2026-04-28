@@ -1,0 +1,47 @@
+name: Deploy AI Receptionist
+
+on:
+  push:
+    branches:
+      - main
+
+env:
+  GCP_PROJECT: ${{ secrets.GCP_PROJECT_ID }}
+  REGION: europe-west2
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v3
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Build with Gradle & Enforce Checkstyle
+        run: ./gradlew build check
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Configure Docker for GCP
+        run: gcloud auth configure-docker gcr.io
+
+      - name: Build and Push Voice Gateway
+        run: |
+          docker build -t gcr.io/$GCP_PROJECT/voice-gateway:latest ./voice-gateway
+          docker push gcr.io/$GCP_PROJECT/voice-gateway:latest
+
+      - name: Deploy to Cloud Run
+        run: |
+          gcloud run deploy voice-gateway \
+            --image gcr.io/$GCP_PROJECT/voice-gateway:latest \
+            --region $REGION \
+            --platform managed \
+            --allow-unauthenticated
